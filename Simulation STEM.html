@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulimi i makinës në rrafsh të pjerrët</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 740px; margin: 20px auto; padding: 0 12px; color: #222; }
+  h1 { font-size: 22px; }
+  canvas { width: 100%; max-width: 700px; border: 1px solid #999; background: #f4f8fb; display: block; }
+  .controls { margin: 14px 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .controls input[type=range] { width: 260px; }
+  button { padding: 6px 14px; font-size: 15px; cursor: pointer; }
+  .readout { font-size: 18px; line-height: 1.7; }
+  .readout b { display: inline-block; min-width: 190px; }
+  .note { font-size: 14px; color: #555; }
+</style>
+</head>
+<body>
+
+<h1>Simulimi i makinës në rrafsh të pjerrët</h1>
+
+<canvas id="c" width="700" height="450"></canvas>
+
+<div class="controls">
+  <label for="angle">Këndi i rrafshit:</label>
+  <input type="range" id="angle" min="5" max="60" step="1" value="20">
+  <span id="angleLabel">20°</span>
+  <button id="startBtn">Fillo</button>
+  <button id="resetBtn">Rivendos</button>
+</div>
+
+<div class="readout">
+  <div><b>Këndi i rrafshit:</b> <span id="outAngle">20,0°</span></div>
+  <div><b>Shpejtësia e makinës:</b> <span id="outV">0,00 m/s</span></div>
+  <div><b>Shpejtësia në fund:</b> <span id="outVEnd">—</span></div>
+</div>
+
+<p class="note">
+  Nxitimi i makinës është a = g · sin(këndi), ku g = 9,8 m/s². Sa më i madh të jetë këndi i rrafshit,
+  aq më shpejt shpejtohet makina teksa zbret. Provo disa kënde të ndryshme dhe krahaso shpejtësinë në fund.
+</p>
+
+<script>
+(function () {
+  var canvas = document.getElementById('c');
+  var ctx = canvas.getContext('2d');
+  var slider = document.getElementById('angle');
+
+  var G = 9.8;                 // m/s^2
+  var SCALE = 42;              // piksel për metër
+  var RAMP_PX = 420;           // gjatësia e rrafshit në piksel (10 m)
+  var TRACK_M = 8.5;           // distanca që përshkon makina (m)
+  var CAR_HALF = 25;           // gjysma e gjatësisë së makinës (px)
+  var B = { x: 620, y: 420 };  // fundi i rrafshit
+
+  var theta = 0;               // rad
+  var accel = 0;
+  var t = 0, dist = 0, v = 0;
+  var running = false, finished = false;
+  var lastTime = null;
+
+  function fmt(n, d) { return n.toFixed(d).replace('.', ','); }
+
+  function setAngleFromSlider() {
+    var deg = parseFloat(slider.value);
+    theta = deg * Math.PI / 180;
+    accel = G * Math.sin(theta);
+    document.getElementById('angleLabel').textContent = deg + '°';
+    document.getElementById('outAngle').textContent = fmt(deg, 1) + '°';
+    document.getElementById('outVEnd').textContent = '—';
+  }
+
+  function reset() {
+    running = false; finished = false;
+    t = 0; dist = 0; v = 0; lastTime = null;
+    setAngleFromSlider();
+    document.getElementById('outV').textContent = fmt(0, 2) + ' m/s';
+    document.getElementById('startBtn').textContent = 'Fillo';
+    draw();
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    var c = Math.cos(theta), s = Math.sin(theta);
+    var T = { x: B.x - RAMP_PX * c, y: B.y - RAMP_PX * s };   // maja e rrafshit
+
+    // toka
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, B.y); ctx.lineTo(canvas.width, B.y); ctx.stroke();
+
+    // trekëndëshi i mbushur poshtë rrafshit
+    ctx.fillStyle = '#e3d3b8';
+    ctx.beginPath(); ctx.moveTo(T.x, T.y); ctx.lineTo(B.x, B.y); ctx.lineTo(T.x, B.y); ctx.closePath(); ctx.fill();
+
+    // rrafshi (dërrasa)
+    ctx.strokeStyle = '#8a5a2b'; ctx.lineWidth = 8; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(T.x, T.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+
+    // harku i këndit
+    ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(B.x, B.y, 55, Math.PI, Math.PI + theta); ctx.stroke();
+    ctx.fillStyle = '#c0392b'; ctx.font = 'bold 16px Arial';
+    ctx.fillText((theta * 180 / Math.PI).toFixed(0) + '°', B.x - 105, B.y - 8);
+
+    // makina
+    var pos = CAR_HALF + dist * SCALE;
+    var cx = T.x + pos * c, cy = T.y + pos * s;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(theta);
+    ctx.translate(0, -4);
+    // trupi
+    ctx.fillStyle = '#2980b9';
+    ctx.fillRect(-25, -22, 50, 14);
+    // kabina
+    ctx.fillStyle = '#3498db';
+    ctx.fillRect(-12, -32, 24, 10);
+    // rrotat
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(-14, -7, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(14, -7, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  function step(now) {
+    if (!running) return;
+    if (lastTime === null) lastTime = now;
+    var dt = Math.min((now - lastTime) / 1000, 0.05);
+    lastTime = now;
+
+    t += dt;
+    v = accel * t;
+    dist = 0.5 * accel * t * t;
+
+    if (dist >= TRACK_M) {
+      dist = TRACK_M;
+      v = Math.sqrt(2 * accel * TRACK_M);
+      running = false; finished = true;
+      document.getElementById('outVEnd').textContent = fmt(v, 2) + ' m/s';
+      document.getElementById('startBtn').textContent = 'Fillo';
+    }
+    document.getElementById('outV').textContent = fmt(v, 2) + ' m/s';
+    draw();
+    if (running) requestAnimationFrame(step);
+  }
+
+  document.getElementById('startBtn').addEventListener('click', function () {
+    if (running) return;
+    if (finished) reset();
+    running = true; lastTime = null;
+    requestAnimationFrame(step);
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', reset);
+  slider.addEventListener('input', reset);
+
+  reset();
+})();
+</script>
+</body>
+</html>
